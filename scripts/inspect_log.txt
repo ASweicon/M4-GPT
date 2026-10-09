@@ -1,0 +1,15 @@
+﻿torch 2.11.0+cu128 | cuda available: True
+device: NVIDIA GeForce RTX 5060
+cuda compute ok: True
+======================== RPC
+C:\Users\Congbing\Downloads\radar_pc.lmdb\radar_pc.lmdb
+entries: 661132
+-- key[0]: '[1, 10, 0]'
+   value: {'len': 7884, 'head_hex': '02000000ec01000004000000ffb9d03e', 'pickle_err': 'UnpicklingError("invalid load key, \'\\\\x02\'.")'}
+-- key[1]: '[1, 10, 100]'
+   value: {'len': 7788, 'head_hex': '02000000e60100000400000011a5d8be', 'pickle_err': 'UnpicklingError("invalid load key, \'\\\\x02\'.")'}
+-- key[2]: '[1, 10, 101]'
+   value: {'len': 9772, 'head_hex': '0200000062020000040000007db1b43f', 'pickle_err': 'UnpicklingError("invalid load key, \'\\\\x02\'.")'}
+======================== INDICATOR
+C:\Users\Congbing\Downloads\indicator.lmdb\indicator.lmdb
+OPEN ERROR: Error('C:\\Users\\Congbing\\Downloads\\indicator.lmdb\\indicator.lmdb: The system cannot find the path specified.\r\n')

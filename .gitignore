@@ -1,0 +1,31 @@
+# Datasets
+data/
+
+# Training outputs
+outputs/
+
+# Model weights (local cache)
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+# LMDB data
+*.lmdb
+*.mdb
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Env
+.env
+*.log

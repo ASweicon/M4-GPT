@@ -1,0 +1,71 @@
+﻿key [1, 10, 0] -> points (492, 4)
+  x range -2.839 2.266 | y 1.749 5.998 | z 0.015 2.999
+  intensity 0.16 1.519 | first point [0.4077 2.2577 1.3374 0.1644]
+key [1, 10, 100] -> points (486, 4)
+  x range -2.066 0.924 | y 1.943 3.968 | z 0.015 1.839
+  intensity 0.152 5.004 | first point [-0.4231  2.3379  1.1606  0.191 ]
+key [1, 10, 101] -> points (610, 4)
+  x range -1.802 1.546 | y 0.794 3.973 | z 0.015 2.978
+  intensity 0.155 1.509 | first point [1.4117 0.7944 0.1636 0.2602]
+
+subjects: [(1, 28573), (2, 32928), (3, 32848), (4, 31966), (5, 33000), (6, 33510), (7, 33971), (8, 33555), (9, 33544), (10, 33765), (11, 33688), (12, 33714), (13, 31930), (14, 33826), (15, 33859), (16, 34240), (17, 33987), (18, 33167), (19, 32895), (20, 32166)]
+num actions: 50
+action frames (sorted by id):
+  action 1: 12637
+  action 2: 12720
+  action 3: 13452
+  action 4: 13525
+  action 5: 13552
+  action 6: 13575
+  action 7: 13411
+  action 8: 12780
+  action 9: 13388
+  action 10: 13541
+  action 11: 13471
+  action 12: 13423
+  action 13: 13394
+  action 14: 13390
+  action 15: 12664
+  action 16: 13498
+  action 17: 12850
+  action 18: 12750
+  action 19: 13062
+  action 20: 13134
+  action 21: 12832
+  action 22: 13485
+  action 23: 13482
+  action 24: 13517
+  action 25: 13502
+  action 26: 13268
+  action 27: 13265
+  action 28: 13440
+  action 29: 13554
+  action 30: 13466
+  action 31: 13356
+  action 32: 12901
+  action 33: 12945
+  action 34: 12914
+  action 35: 12761
+  action 36: 13091
+  action 37: 12961
+  action 38: 13350
+  action 39: 13378
+  action 40: 13074
+  action 41: 13139
+  action 42: 13276
+  action 43: 13283
+  action 44: 13479
+  action 45: 13228
+  action 46: 13459
+  action 47: 13274
+  action 48: 13067
+  action 49: 13466
+  action 50: 12702
+======================== INDICATOR
+entries: 661132
+-- key '[1, 10, 0]' len=4 head=93010a00
+   raw f4 first12: [0.]
+-- key '[1, 10, 100]' len=4 head=93010a64
+   raw f4 first12: [1.0183056e+22]
+-- key '[1, 10, 101]' len=4 head=93010a65
+   raw f4 first12: [4.0732226e+22]
