@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """M4Human metadata: paths, physical limits, action names, split configuration."""
+import os
 
-# ---- LMDB paths ----
-RPC = r"C:\Users\Congbing\Downloads\radar_pc.lmdb\radar_pc.lmdb"
-IND = r"C:\Users\Congbing\Downloads\indicator.lmdb"
+# ---- LMDB paths (相对本项目根目录, Mac/服务器通用) ----
+_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+RPC = os.path.join(_ROOT, "radar_pc.lmdb")
+IND = os.path.join(_ROOT, "indicator.lmdb")
 
 # ---- physical limits (metres), radar frame: x horizontal, y forward(depth), z up ----
 LIM = {

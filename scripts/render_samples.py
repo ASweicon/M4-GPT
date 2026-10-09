@@ -11,7 +11,7 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(__file__))
 from m4config import RPC, LIM, ACTION_NAMES, coarse_group
 
-OUT_SIZE = 392          # multiple of 28
+OUT_SIZE = 784          # multiple of 28 (784/28=28 -> 784 visual tokens, 高清版)
 T = 4
 TIME_COLORS = ["#2b83ba", "#abdda4", "#fdae61", "#d7191c"]  # old -> new
 
@@ -45,7 +45,7 @@ def list_frames(txn, s, a):
 def render_clip(txn, s, a, f_center, out_path):
     frames = [get_frame(txn, s, a, f_center - T + 1 + i) for i in range(T)]
 
-    fig = plt.figure(figsize=(5.6, 5.6), dpi=100, facecolor="black")
+    fig = plt.figure(figsize=(7.84, 7.84), dpi=100, facecolor="black")
     axes = [fig.add_subplot(2, 2, i + 1) for i in range(4)]
     views = [("BEV  (x-y)", 0, 1, ("x", "y")),
              ("Front (x-z)", 0, 2, ("x", "z")),
@@ -56,26 +56,26 @@ def render_clip(txn, s, a, f_center, out_path):
         for t, fr in enumerate(frames):
             if fr is None:
                 continue
-            ax.scatter(fr[:, i], fr[:, j], s=2.2, c=TIME_COLORS[t],
-                       alpha=0.65, linewidths=0)
+            ax.scatter(fr[:, i], fr[:, j], s=4.5, c=TIME_COLORS[t],
+                       alpha=0.75, linewidths=0)
         ax.set_xlim(*LIM[lx]); ax.set_ylim(*LIM[ly])
-        ax.set_title(title, color="white", fontsize=10)
-        ax.set_xlabel(lx + " (m)", color="#cccccc", fontsize=8)
-        ax.set_ylabel(ly + " (m)", color="#cccccc", fontsize=8)
-        ax.tick_params(colors="#999999", labelsize=7)
+        ax.set_title(title, color="white", fontsize=13)
+        ax.set_xlabel(lx + " (m)", color="#cccccc", fontsize=11)
+        ax.set_ylabel(ly + " (m)", color="#cccccc", fontsize=11)
+        ax.tick_params(colors="#999999", labelsize=9)
         for sp in ax.spines.values():
             sp.set_color("#666666")
 
     # legend panel ONLY: never render subject/action/coarse (would leak labels)
     ax = axes[3]; ax.set_facecolor("black"); ax.axis("off")
     ax.text(0.05, 0.88, "time order\n(old -> recent)", color="white",
-            fontsize=9, va="top", family="monospace", transform=ax.transAxes)
+            fontsize=12, va="top", family="monospace", transform=ax.transAxes)
     for t in range(T):
         y = 0.58 - t * 0.105
-        ax.add_patch(plt.Rectangle((0.05, y), 0.10, 0.06,
+        ax.add_patch(plt.Rectangle((0.05, y), 0.12, 0.06,
                                    color=TIME_COLORS[t], transform=ax.transAxes))
-        ax.text(0.20, y + 0.026, f"t-{T-1-t}" if t < T-1 else "t (now)",
-                color="#dddddd", fontsize=8, transform=ax.transAxes)
+        ax.text(0.22, y + 0.026, f"t-{T-1-t}" if t < T-1 else "t (now)",
+                color="#dddddd", fontsize=11, transform=ax.transAxes)
 
     fig.subplots_adjust(left=0.09, right=0.97, top=0.94, bottom=0.07,
                         hspace=0.28, wspace=0.28)
