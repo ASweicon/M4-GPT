@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Build rendered-image + instruction dataset for HAR (S2 cross-subject)."""
-import argparse, json, os, random, sys
+import argparse, glob, json, os, random, sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -58,18 +58,62 @@ def make_records(s, a, fc, img_rel):
     ]
 
 
+def merge_chunks(sp):
+    """合并 {sp}_chunkN.jsonl -> {sp}.jsonl, 做全局重排后删除分块文件."""
+    paths = sorted(glob.glob(os.path.join(DATA_ROOT, f"{sp}_chunk*.jsonl")))
+    if not paths:
+        print(f"no {sp}_chunk*.jsonl to merge", flush=True)
+        return
+    rows = []
+    for p in paths:
+        with open(p, encoding="utf-8") as f:
+            rows += [json.loads(l) for l in f]
+        os.remove(p)
+    random.Random(0).shuffle(rows)
+    jp = os.path.join(DATA_ROOT, f"{sp}.jsonl")
+    with open(jp, "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    print(f"== merged {len(paths)} chunks -> {jp} ({len(rows)} records)",
+          flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mode", default="smoke", choices=list(MODES))
+    ap.add_argument("--split", default="train,val,test",
+                    help="逗号分隔: train,val,test")
+    ap.add_argument("--chunk", type=int, default=0,
+                    help=">0: 只渲染 --split 的第 N 个 subject, "
+                         "写 {split}_chunk{N}.jsonl (进程隔离防内存泄漏, 支持并行)")
+    ap.add_argument("--merge", default="",
+                    help="非空: 合并 {值}_chunk*.jsonl 为 {值}.jsonl 后退出")
     args = ap.parse_args()
     K = MODES[args.mode]
 
-    train_sub = sorted(set(range(1, 21)) - set(S2_TEST) - set(S2_VAL))
-    splits = [("train", train_sub, K["train"]),
-              ("val", S2_VAL, K["val"]),
-              ("test", S2_TEST, K["test"])]
+    if args.merge:
+        merge_chunks(args.merge)
+        return
 
-    for sp, subs, k in splits:
+    train_sub = sorted(set(range(1, 21)) - set(S2_TEST) - set(S2_VAL))
+    by_split = {"train": (train_sub, K["train"]),
+                "val": (S2_VAL, K["val"]),
+                "test": (S2_TEST, K["test"])}
+    names = [x.strip() for x in args.split.split(",") if x.strip()]
+    for sp in names:
+        if sp not in by_split:
+            sys.exit(f"unknown split: {sp}")
+    splits = [(sp, sorted(by_split[sp][0]), by_split[sp][1]) for sp in names]
+
+    suffix = ""
+    if args.chunk:
+        sp, subs, k = splits[0]
+        if not 1 <= args.chunk <= len(subs):
+            sys.exit(f"--chunk must be 1..{len(subs)} for split {sp}")
+        splits = [(sp, [subs[args.chunk - 1]], k)]
+        suffix = f"_chunk{args.chunk}"
+
+    for sp, _, _ in splits:
         os.makedirs(os.path.join(DATA_ROOT, "images", sp), exist_ok=True)
 
     env = open_db(RPC, 8)
@@ -89,7 +133,7 @@ def main():
                 print(f"[{sp}] subject {s} done, records={len(records)}",
                       flush=True)
             random.Random(0).shuffle(records)
-            jp = os.path.join(DATA_ROOT, f"{sp}.jsonl")
+            jp = os.path.join(DATA_ROOT, f"{sp}{suffix}.jsonl")
             with open(jp, "w", encoding="utf-8") as f:
                 for r in records:
                     f.write(json.dumps(r, ensure_ascii=False) + "\n")
