@@ -18,16 +18,18 @@ DEVICE = "cuda" if torch.cuda.is_available() else (
     "mps" if torch.backends.mps.is_available() else "cpu")
 
 sys.path.insert(0, HERE)
-from m4config import ACTION_NAMES, S2_TEST
+from m4config import ACTION_NAMES, S2_TEST, S2_VAL
 
 
 def gather_items(split, per_pair):
     img_dir = os.path.join(DATA_ROOT, "images", split)
+    # train: 不过滤(诊断记忆用); test/val: 只保留对应被试
+    keep = {"test": set(S2_TEST), "val": set(S2_VAL)}.get(split)
     by_pair = defaultdict(list)
     for fn in os.listdir(img_dir):
         parts = fn[:-4].split("_")
         s = int(parts[0][1:]); a = int(parts[1][1:])
-        if s in S2_TEST:
+        if keep is None or s in keep:
             by_pair[(s, a)].append(fn)
     items = []
     for (s, a), lst in sorted(by_pair.items()):

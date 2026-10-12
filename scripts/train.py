@@ -18,6 +18,9 @@ from transformers import (AutoProcessor, Qwen2VLForConditionalGeneration,
 from peft import LoraConfig, get_peft_model, TaskType
 
 HERE = os.path.dirname(__file__)
+sys.path.insert(0, HERE)
+from m4config import ACTION_NAMES
+
 DATA_ROOT = os.path.abspath(os.path.join(HERE, "..", "data"))
 CKPT = os.path.abspath(os.path.join(HERE, "..", "outputs", "lora"))
 MODEL = "Qwen/Qwen2-VL-2B-Instruct"
@@ -106,6 +109,8 @@ def main():
     ap.add_argument("--no_gc", action="store_true",
                     help="disable gradient checkpointing (faster, more VRAM)")
     ap.add_argument("--debug", action="store_true")
+    ap.add_argument("--task", default="all", choices=["all", "fine"],
+                    help="all: 3种问答混合; fine: 只用细粒度动作名问答")
     args = ap.parse_args()
 
     proc = AutoProcessor.from_pretrained(MODEL)
@@ -143,6 +148,13 @@ def main():
     model.print_trainable_parameters()
 
     train_ds = M4Dataset("train", proc)
+    if args.task == "fine":
+        names = set(ACTION_NAMES.values())
+        before = len(train_ds.rows)
+        train_ds.rows = [r for r in train_ds.rows
+                         if r["messages"][1]["content"] in names]
+        print(f"task=fine: {before} -> {len(train_ds.rows)} records",
+              flush=True)
     if args.max_train:
         train_ds.rows = train_ds.rows[:args.max_train]
     dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
