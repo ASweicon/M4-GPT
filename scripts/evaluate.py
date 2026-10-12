@@ -14,7 +14,8 @@ CKPT = os.path.abspath(os.path.join(HERE, "..", "outputs", "lora"))
 OUT = os.path.abspath(os.path.join(HERE, "..", "outputs", "eval"))
 MODEL = "Qwen/Qwen2-VL-2B-Instruct"
 QUESTION = "What action is the person performing in this radar point cloud?"
-DEVICE = "mps" if torch.backends.mps.is_available() else DEVICE if torch.cuda.is_available() else "cpu"
+DEVICE = "cuda" if torch.cuda.is_available() else (
+    "mps" if torch.backends.mps.is_available() else "cpu")
 
 sys.path.insert(0, HERE)
 from m4config import ACTION_NAMES, S2_TEST
