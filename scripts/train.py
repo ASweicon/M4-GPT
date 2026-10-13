@@ -111,6 +111,8 @@ def main():
     ap.add_argument("--debug", action="store_true")
     ap.add_argument("--task", default="all", choices=["all", "fine"],
                     help="all: 3种问答混合; fine: 只用细粒度动作名问答")
+    ap.add_argument("--data", default="",
+                    help="直接指定训练用jsonl路径 (覆盖train split, 跳过--task过滤)")
     args = ap.parse_args()
 
     proc = AutoProcessor.from_pretrained(MODEL)
@@ -148,7 +150,12 @@ def main():
     model.print_trainable_parameters()
 
     train_ds = M4Dataset("train", proc)
-    if args.task == "fine":
+    if args.data:
+        with open(args.data, encoding="utf-8") as f:
+            train_ds.rows = [json.loads(l) for l in f]
+        print(f"data override: {args.data} -> {len(train_ds.rows)} records",
+              flush=True)
+    elif args.task == "fine":
         names = set(ACTION_NAMES.values())
         before = len(train_ds.rows)
         train_ds.rows = [r for r in train_ds.rows
