@@ -18,7 +18,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else (
     "mps" if torch.backends.mps.is_available() else "cpu")
 
 sys.path.insert(0, HERE)
-from m4config import ACTION_NAMES, S2_TEST, S2_VAL
+from m4config import ACTION_NAMES, S2_TEST, S2_VAL, coarse_group
 
 
 def gather_items(split, per_pair):
@@ -47,6 +47,8 @@ def main():
     ap.add_argument("--split", default="test")
     ap.add_argument("--base_only", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--task", default="fine", choices=["fine", "coarse"],
+                    help="fine: 50类动作名似然打分; coarse: 3类粗粒度打分")
     args = ap.parse_args()
 
     proc = AutoProcessor.from_pretrained(MODEL)
@@ -66,12 +68,16 @@ def main():
     items = gather_items(args.split, args.per_pair)
     if args.limit:
         items = items[:args.limit]
-    names = [ACTION_NAMES[i] for i in range(1, 51)]
+    if args.task == "coarse":
+        names = ["in-place", "sit-in-place", "non-in-place"]
+    else:
+        names = [ACTION_NAMES[i] for i in range(1, 51)]
     ans_tokens = [proc.tokenizer(n, add_special_tokens=False).input_ids
                   for n in names]
+    NC = len(names)
 
     top1 = top5 = 0
-    confusion = np.zeros((50, 50), dtype=int)
+    confusion = np.zeros((NC, NC), dtype=int)
     per_act = defaultdict(lambda: [0, 0])
 
     for n_it, (s, gt_act, fn) in enumerate(items):
@@ -91,10 +97,10 @@ def main():
             img_emb = visual(pd["pixel_values"].to(DEVICE),
                              grid0).pooler_output  # [196,1536]
 
-        scores = np.zeros(50)
-        for c0 in range(0, 50, args.cbatch):
+        scores = np.zeros(NC)
+        for c0 in range(0, NC, args.cbatch):
             ids, mm, attn, spans = [], [], [], []
-            for c in range(c0, min(c0 + args.cbatch, 50)):
+            for c in range(c0, min(c0 + args.cbatch, NC)):
                 a_ids = ans_tokens[c]
                 ids.append(torch.tensor(pid + a_ids))
                 mm.append(torch.tensor(pmm + [0] * len(a_ids)))
@@ -123,20 +129,26 @@ def main():
                 scores[c0 + k] = (sel.sum() / sel.numel()).item()
 
         order = np.argsort(-scores)
-        pred = order[0] + 1
-        gt = gt_act - 1
-        confusion[gt, pred - 1] += 1
-        per_act[gt_act][0] += int(pred == gt_act)
-        per_act[gt_act][1] += 1
-        top1 += int(pred == gt_act)
-        top5 += int(gt in order[:5])
+        pred = int(order[0])
+        if args.task == "coarse":
+            key = coarse_group(gt_act)
+            gt_idx = names.index(key)
+        else:
+            key = ACTION_NAMES[gt_act]
+            gt_idx = gt_act - 1
+        confusion[gt_idx, pred] += 1
+        per_act[key][0] += int(pred == gt_idx)
+        per_act[key][1] += 1
+        top1 += int(pred == gt_idx)
+        top5 += int(gt_idx in order[:5])
         print(f"{n_it+1}/{len(items)} running top1 {top1/(n_it+1):.3f} "
               f"top5 {top5/(n_it+1):.3f}", flush=True)
 
     os.makedirs(OUT, exist_ok=True)
-    res = {"n": len(items), "top1": top1/len(items), "top5": top5/len(items),
-           "per_action": {ACTION_NAMES[a]: per_act[a][0]/per_act[a][1]
-                          for a in sorted(per_act)}}
+    res = {"n": len(items), "task": args.task, "split": args.split,
+           "top1": top1/len(items), "top5": top5/len(items),
+           "per_action": {k: per_act[k][0]/per_act[k][1]
+                          for k in sorted(per_act)}}
     with open(os.path.join(OUT, "results.json"), "w", encoding="utf-8") as f:
         json.dump(res, f, indent=2, ensure_ascii=False)
     np.savetxt(os.path.join(OUT, "confusion.csv"), confusion, fmt="%d",
