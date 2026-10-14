@@ -30,15 +30,19 @@ DEVICE = "cuda" if torch.cuda.is_available() else (
 ACT_YES, ACT_NO = "Squat", "Jumping up"   # 动作22/27, 蹲下vs起跳, 形态差异极大
 PER_CLASS = 32
 QUESTION = "Is the person squatting? Answer Yes or No."
-OUT_JSONL = os.path.join(DATA_ROOT, "binary64.jsonl")
 
 
-def make_data():
-    """从 train.jsonl 抽取二分类数据: Squat->Yes, Jumping up->No, 各32条.
+def binary_jsonl(split):
+    return os.path.join(DATA_ROOT, f"binary_{split}.jsonl")
+
+
+def make_data(split):
+    """从 {split}.jsonl 抽取二分类数据: Squat->Yes, Jumping up->No, 各最多32条.
 
     固定随机种子, 重复运行生成完全一致的文件 (保证评测的就是训练的那64条).
+    split=test 时用未见过的被试 (泛化测试).
     """
-    with open(os.path.join(DATA_ROOT, "train.jsonl"), encoding="utf-8") as f:
+    with open(os.path.join(DATA_ROOT, f"{split}.jsonl"), encoding="utf-8") as f:
         rows = [json.loads(l) for l in f]
 
     def pick(name, ans):
@@ -53,28 +57,29 @@ def make_data():
     random.seed(0)
     data = pick(ACT_YES, "Yes") + pick(ACT_NO, "No")
     random.shuffle(data)
-    with open(OUT_JSONL, "w", encoding="utf-8") as f:
+    out_path = binary_jsonl(split)
+    with open(out_path, "w", encoding="utf-8") as f:
         for r in data:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     n_yes = sum(1 for r in data if r["messages"][1]["content"] == "Yes")
-    print(f"[probe] wrote {len(data)} records -> {OUT_JSONL} "
+    print(f"[probe] wrote {len(data)} records -> {out_path} "
           f"(Yes {n_yes} / No {len(data) - n_yes})", flush=True)
 
 
-def run_train(epochs):
+def run_train(epochs, split):
     # 训练会覆盖 outputs/lora, 若尚未备份旧 adapter 则先备份一次
     if os.path.isdir(CKPT) and not os.path.isdir(BACKUP):
         shutil.copytree(CKPT, BACKUP)
         print("[probe] 已备份现有 adapter ->", BACKUP, flush=True)
     cmd = [sys.executable, os.path.join(HERE, "train.py"),
-           "--data", OUT_JSONL, "--epochs", str(epochs)]
+           "--data", binary_jsonl(split), "--epochs", str(epochs)]
     print("[probe] 训练:", " ".join(cmd), flush=True)
     r = subprocess.run(cmd, cwd=ROOT)
     if r.returncode != 0:
         sys.exit(r.returncode)
 
 
-def run_eval():
+def run_eval(split):
     """逐条前向, 比较答案首 token (Yes vs No) 的 logit, 统计准确率."""
     proc = AutoProcessor.from_pretrained(MODEL)
     base = Qwen2VLForConditionalGeneration.from_pretrained(
@@ -83,7 +88,7 @@ def run_eval():
     yes_tok = proc.tokenizer("Yes", add_special_tokens=False).input_ids[0]
     no_tok = proc.tokenizer("No", add_special_tokens=False).input_ids[0]
 
-    with open(OUT_JSONL, encoding="utf-8") as f:
+    with open(binary_jsonl(split), encoding="utf-8") as f:
         data = [json.loads(l) for l in f]
 
     correct = 0
@@ -111,8 +116,18 @@ def run_eval():
                   flush=True)
 
     acc = correct / len(data)
-    print(f"\n[probe] 二分类准确率: {acc:.3f} "
+    print(f"\n[probe] 二分类准确率 ({split} split): {acc:.3f} "
           f"(预测分布 Yes:{conf['Yes']} No:{conf['No']})")
+    if split == "test":
+        if acc >= 0.8:
+            print("[probe] 判决: 泛化出色 —— 未见过的被试上也能区分蹲/跳, E4 前景很好")
+        elif acc >= 0.6:
+            print("[probe] 判决: 部分泛化 —— 有迁移但不足, "
+                  "符合仅64图训练的预期, 靠 E4 扩数据提升")
+        else:
+            print("[probe] 判决: 泛化失败 —— 记住的是训练被试的指纹而非动作特征; "
+                  "E4 需靠数据量与多样性破局")
+        return
     if acc >= 0.9:
         print("[probe] 判决: 视觉通路正常 —— 模型背下了64张图, "
               "失败原因是数据量/任务稀释, 可上 E4 正式重训")
@@ -130,12 +145,14 @@ def main():
                     help="过拟合训练轮数 (默认30)")
     ap.add_argument("--skip_train", action="store_true",
                     help="跳过训练, 直接用现有 adapter 评测")
+    ap.add_argument("--split", default="train", choices=["train", "test"],
+                    help="从哪个split抽二分类数据 (test=未见过的被试, 测泛化)")
     args = ap.parse_args()
 
-    make_data()
+    make_data(args.split)
     if not args.skip_train:
-        run_train(args.epochs)
-    run_eval()
+        run_train(args.epochs, args.split)
+    run_eval(args.split)
 
 
 if __name__ == "__main__":
