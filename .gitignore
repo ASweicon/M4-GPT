@@ -1,5 +1,6 @@
-# Datasets
-data/
+# Datasets (图片不入库; jsonl 是数据配置, 纳入版本控制)
+data/*
+!data/*.jsonl
 
 # Training outputs
 outputs/
