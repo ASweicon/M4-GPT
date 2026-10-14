@@ -2,14 +2,16 @@
 data/*
 !data/*.jsonl
 
-# Training outputs
-outputs/
+# Training outputs (放行 LoRA adapter 目录, 供跨机器 --resume 续训)
+outputs/*
+!outputs/lora/
 
-# Model weights (local cache)
+# Model weights (local cache) — adapter 权重精确放行
 *.safetensors
 *.bin
 *.pt
 *.pth
+!outputs/lora/adapter_model.safetensors
 
 # LMDB data
 *.lmdb
