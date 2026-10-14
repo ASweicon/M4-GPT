@@ -36,3 +36,6 @@ __pycache__/
 *.tar
 *.zip
 deploy/
+
+# Server artifacts backup (eval results, adapters, training logs, dataset archives)
+backup/
