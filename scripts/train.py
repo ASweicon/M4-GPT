@@ -15,7 +15,7 @@ from torch.nn.utils import clip_grad_norm_
 from PIL import Image
 from transformers import (AutoProcessor, Qwen2VLForConditionalGeneration,
                           get_cosine_schedule_with_warmup)
-from peft import LoraConfig, get_peft_model, TaskType
+from peft import LoraConfig, get_peft_model, PeftModel, TaskType
 
 HERE = os.path.dirname(__file__)
 sys.path.insert(0, HERE)
@@ -113,6 +113,8 @@ def main():
                     help="all: 3种问答混合; fine: 只用细粒度动作名问答")
     ap.add_argument("--data", default="",
                     help="直接指定训练用jsonl路径 (覆盖train split, 跳过--task过滤)")
+    ap.add_argument("--resume", default="",
+                    help="从已有 adapter 目录继续训练 (如 outputs/lora); 默认挂全新 LoRA")
     args = ap.parse_args()
 
     proc = AutoProcessor.from_pretrained(MODEL)
@@ -145,7 +147,13 @@ def main():
             "fc1",         # visual.blocks.N.mlp.fc1
             "fc2",         # visual.blocks.N.mlp.fc2
         ])
-    model = get_peft_model(model, lcfg)
+    if args.resume:
+        # 阶段衔接/断点续训: 加载已训好的 LoRA 权重, 继续在新数据上训练
+        # (r/target_modules 等 LoRA 结构自动读取自 adapter_config.json)
+        model = PeftModel.from_pretrained(model, args.resume, is_trainable=True)
+        print(f"resume: 从 {args.resume} 加载 LoRA 权重继续训练", flush=True)
+    else:
+        model = get_peft_model(model, lcfg)
     model.to(DEVICE)
     model.print_trainable_parameters()
 
