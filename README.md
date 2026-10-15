@@ -41,12 +41,12 @@ checkpoint 各自独立目录, E5 从冻结的 E4 出发续训, 不会覆盖 E4:
 
 ```bash
 # 1) E4: 50 类分类训练, 产物冻结在 outputs/e4_lora
-#    已有产物时脚本自动询问: skip(已完成)/resume(断点续训)/fresh(重训, 需确认);
-#    非交互环境检测到已有产物默认 skip, 不会误重训.
+#    检测到已有产物时先询问再执行: skip(已完成)/resume(断点续训)/fresh(重训, 需确认);
+#    非交互环境提示后退出, 需显式指定 skip|resume|fresh, 脚本不代做决定.
 bash scripts/run_e4.sh
 
 # 2) E5: 从冻结的 E4 起点多任务指令续训, 新 adapter 写 outputs/e5_lora
-#    同样支持 skip/resume/fresh; DRY=1 可预览将执行的命令不实跑.
+#    同样先检测已有进度再让你选择; DRY=1 可预览将执行的命令不实跑.
 bash scripts/run_e5.sh
 ```
 

@@ -12,8 +12,8 @@
 #         resume 从 E5 现有 checkpoint 断点续训 (中断接续)
 #         fresh  从 E4 重新开始 E5 (删除现有 E5 进度, 需输入 yes 确认)
 #   不带 mode 时: 若 outputs/e5_lora 已存在则交互式询问, 防止覆盖训练进度;
-#               不存在则直接从 E4 起点开训.
-#   非交互环境 (管道/CI) 下检测到已有 E5 默认 skip, 不会动已训练权重.
+#               不存在则直接从 E4 起点开训. 检测到已有产物时必须由用户明确
+#               选择, 非交互环境不代做决定, 提示后退出, 需显式指定 mode.
 #   DRY=1 时只打印将执行的命令, 不实际运行 (预览用).
 #   例: bash scripts/run_e5.sh fresh --max_steps 1200
 set -e
@@ -44,7 +44,11 @@ if [ "$MODE" = "auto" ] && [ -d "$E5" ]; then
         echo "  [q] 退出"
         read -r -p "选择 [1/2/3/q]: " REPLY || REPLY=q
     else
-        echo "  非交互模式, 默认 skip (如需 resume/fresh 请显式指定)"; REPLY=1
+        echo "  非交互环境无法弹出选择, 请显式指定后重跑:"
+        echo "    bash scripts/run_e5.sh skip    # E5 已完成, 跳过训练只抽查"
+        echo "    bash scripts/run_e5.sh resume  # 从 E5 现有 checkpoint 断点续训"
+        echo "    bash scripts/run_e5.sh fresh   # 从 E4 重开 E5 (将再次要求确认)"
+        exit 1
     fi
     case "$REPLY" in
         1) MODE=skip;;  2) MODE=resume;;  3) MODE=fresh;;

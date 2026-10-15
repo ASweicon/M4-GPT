@@ -9,8 +9,8 @@
 #         resume 从现有 checkpoint 断点续训 (中断接续)
 #         fresh  删除现有成果从零重训 (需输入 yes 确认)
 #   不带 mode 时: 若 outputs/e4_lora 已存在则交互式询问, 防止误重训;
-#               不存在则直接 fresh.
-#   非交互环境 (管道/CI) 下检测到已有产物默认 skip, 不会动已训练权重.
+#               不存在则直接 fresh. 检测到已有产物时必须由用户明确选择,
+#               非交互环境不代做决定, 提示后退出, 需显式指定 mode.
 #   DRY=1 时只打印将执行的命令, 不实际运行 (预览用).
 #   额外参数透传给 train.py, 例: bash scripts/run_e4.sh resume --max_steps 3200
 set -e
@@ -35,7 +35,11 @@ if [ "$MODE" = "auto" ] && [ -d "$E4" ]; then
         echo "  [q] 退出 (E4 已冻结想开 E5 请直接: bash scripts/run_e5.sh)"
         read -r -p "选择 [1/2/3/q]: " REPLY || REPLY=q
     else
-        echo "  非交互模式, 默认 skip (如需 resume/fresh 请显式指定)"; REPLY=1
+        echo "  非交互环境无法弹出选择, 请显式指定后重跑:"
+        echo "    bash scripts/run_e4.sh skip    # E4 已完成, 跳过训练只抽查"
+        echo "    bash scripts/run_e4.sh resume  # 从现有 checkpoint 断点续训"
+        echo "    bash scripts/run_e4.sh fresh   # 删除成果从零重训 (将再次要求确认)"
+        exit 1
     fi
     case "$REPLY" in
         1) MODE=skip;;  2) MODE=resume;;  3) MODE=fresh;;
