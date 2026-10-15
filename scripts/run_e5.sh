@@ -11,9 +11,9 @@
 #   mode: skip   跳过训练, 只做 fine 抽查 (E5 已完成时用)
 #         resume 从 E5 现有 checkpoint 断点续训 (中断接续)
 #         fresh  从 E4 重新开始 E5 (删除现有 E5 进度, 需输入 yes 确认)
-#   不带 mode 时: 若 outputs/e5_lora 已存在则交互式询问, 防止覆盖训练进度;
-#               不存在则直接从 E4 起点开训. 检测到已有产物时必须由用户明确
-#               选择, 非交互环境不代做决定, 提示后退出, 需显式指定 mode.
+#   不带 mode 时: 先报告产物状态 (有无 outputs/e5_lora), 再询问如何继续;
+#               无论有无产物都由用户明确选择, 不默认直接开训;
+#               非交互环境提示后退出, 需显式指定 mode.
 #   DRY=1 时只打印将执行的命令, 不实际运行 (预览用).
 #   例: bash scripts/run_e5.sh fresh --max_steps 1200
 set -e
@@ -34,26 +34,48 @@ if [ $# -gt 0 ]; then
     case "$1" in skip|resume|fresh) MODE="$1"; shift;; esac
 fi
 
-if [ "$MODE" = "auto" ] && [ -d "$E5" ]; then
-    echo "检测到 $E5 已存在 —— E5 可能已有训练进度."
-    REPLY=""
-    if [ -t 0 ]; then
-        echo "  [1] skip   已完成, 跳过训练只做抽查"
-        echo "  [2] resume 从 E5 现有 checkpoint 断点续训"
-        echo "  [3] fresh  从 E4 重开 E5 (删除现有进度, 需确认)"
-        echo "  [q] 退出"
-        read -r -p "选择 [1/2/3/q]: " REPLY || REPLY=q
+if [ "$MODE" = "auto" ]; then
+    if [ -d "$E5" ]; then
+        echo "检测到 $E5 已存在 —— E5 可能已有训练进度."
+        REPLY=""
+        if [ -t 0 ]; then
+            echo "  [1] skip   已完成, 跳过训练只做抽查"
+            echo "  [2] resume 从 E5 现有 checkpoint 断点续训"
+            echo "  [3] fresh  从 E4 重开 E5 (删除现有进度, 需确认)"
+            echo "  [q] 退出"
+            read -r -p "选择 [1/2/3/q]: " REPLY || REPLY=q
+        else
+            echo "  非交互环境无法弹出选择, 请显式指定后重跑:"
+            echo "    bash scripts/run_e5.sh skip    # E5 已完成, 跳过训练只抽查"
+            echo "    bash scripts/run_e5.sh resume  # 从 E5 现有 checkpoint 断点续训"
+            echo "    bash scripts/run_e5.sh fresh   # 从 E4 重开 E5 (将再次要求确认)"
+            exit 1
+        fi
+        case "$REPLY" in
+            1) MODE=skip;;  2) MODE=resume;;  3) MODE=fresh;;
+            *) echo "退出"; exit 0;;
+        esac
     else
-        echo "  非交互环境无法弹出选择, 请显式指定后重跑:"
-        echo "    bash scripts/run_e5.sh skip    # E5 已完成, 跳过训练只抽查"
-        echo "    bash scripts/run_e5.sh resume  # 从 E5 现有 checkpoint 断点续训"
-        echo "    bash scripts/run_e5.sh fresh   # 从 E4 重开 E5 (将再次要求确认)"
-        exit 1
+        echo "未检测到 $E5 —— 当前无 E5 训练进度 (起点: 冻结的 $E4)."
+        REPLY=""
+        if [ -t 0 ]; then
+            echo "  [1] fresh 从 E4 起点开始 E5"
+            echo "  [q] 退出"
+            read -r -p "选择 [1/q]: " REPLY || REPLY=q
+        else
+            echo "  非交互环境无法弹出选择, 请显式指定后重跑:"
+            echo "    bash scripts/run_e5.sh fresh   # 从 E4 起点开始 E5"
+            exit 1
+        fi
+        case "$REPLY" in
+            1) MODE=fresh;;  *) echo "退出"; exit 0;;
+        esac
     fi
-    case "$REPLY" in
-        1) MODE=skip;;  2) MODE=resume;;  3) MODE=fresh;;
-        *) echo "退出"; exit 0;;
-    esac
+fi
+
+# 显式指定但产物状态对不上时提前拦截, 不让 train.py 报晦涩错误
+if [ "$MODE" = "resume" ] && [ ! -d "$E5" ]; then
+    echo "!! $MODE 需要 $E5 存在, 但当前无 E5 进度"; exit 1
 fi
 
 EXTRA=(--data data/instruct_train.jsonl)

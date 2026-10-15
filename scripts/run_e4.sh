@@ -8,9 +8,9 @@
 #   mode: skip   跳过训练, 只做抽查评估 (E4 已完成/已冻结时用)
 #         resume 从现有 checkpoint 断点续训 (中断接续)
 #         fresh  删除现有成果从零重训 (需输入 yes 确认)
-#   不带 mode 时: 若 outputs/e4_lora 已存在则交互式询问, 防止误重训;
-#               不存在则直接 fresh. 检测到已有产物时必须由用户明确选择,
-#               非交互环境不代做决定, 提示后退出, 需显式指定 mode.
+#   不带 mode 时: 先报告产物状态 (有无 outputs/e4_lora), 再询问如何继续;
+#               无论有无产物都由用户明确选择, 不默认直接开训;
+#               非交互环境提示后退出, 需显式指定 mode.
 #   DRY=1 时只打印将执行的命令, 不实际运行 (预览用).
 #   额外参数透传给 train.py, 例: bash scripts/run_e4.sh resume --max_steps 3200
 set -e
@@ -25,26 +25,48 @@ if [ $# -gt 0 ]; then
     case "$1" in skip|resume|fresh) MODE="$1"; shift;; esac
 fi
 
-if [ "$MODE" = "auto" ] && [ -d "$E4" ]; then
-    echo "检测到 $E4 已存在 —— E4 可能已训练完成 (冻结起点)."
-    REPLY=""
-    if [ -t 0 ]; then
-        echo "  [1] skip   已完成, 跳过训练只做抽查评估"
-        echo "  [2] resume 断点续训 (从现有 checkpoint 继续)"
-        echo "  [3] fresh  删除成果从零重训 (危险, 需确认)"
-        echo "  [q] 退出 (E4 已冻结想开 E5 请直接: bash scripts/run_e5.sh)"
-        read -r -p "选择 [1/2/3/q]: " REPLY || REPLY=q
+if [ "$MODE" = "auto" ]; then
+    if [ -d "$E4" ]; then
+        echo "检测到 $E4 已存在 —— E4 可能已训练完成 (冻结起点)."
+        REPLY=""
+        if [ -t 0 ]; then
+            echo "  [1] skip   已完成, 跳过训练只做抽查评估"
+            echo "  [2] resume 断点续训 (从现有 checkpoint 继续)"
+            echo "  [3] fresh  删除成果从零重训 (危险, 需确认)"
+            echo "  [q] 退出 (E4 已冻结想开 E5 请直接: bash scripts/run_e5.sh)"
+            read -r -p "选择 [1/2/3/q]: " REPLY || REPLY=q
+        else
+            echo "  非交互环境无法弹出选择, 请显式指定后重跑:"
+            echo "    bash scripts/run_e4.sh skip    # E4 已完成, 跳过训练只抽查"
+            echo "    bash scripts/run_e4.sh resume  # 从现有 checkpoint 断点续训"
+            echo "    bash scripts/run_e4.sh fresh   # 删除成果从零重训 (将再次要求确认)"
+            exit 1
+        fi
+        case "$REPLY" in
+            1) MODE=skip;;  2) MODE=resume;;  3) MODE=fresh;;
+            *) echo "退出"; exit 0;;
+        esac
     else
-        echo "  非交互环境无法弹出选择, 请显式指定后重跑:"
-        echo "    bash scripts/run_e4.sh skip    # E4 已完成, 跳过训练只抽查"
-        echo "    bash scripts/run_e4.sh resume  # 从现有 checkpoint 断点续训"
-        echo "    bash scripts/run_e4.sh fresh   # 删除成果从零重训 (将再次要求确认)"
-        exit 1
+        echo "未检测到 $E4 —— 当前无已训练产物."
+        REPLY=""
+        if [ -t 0 ]; then
+            echo "  [1] fresh 开始从零训练"
+            echo "  [q] 退出"
+            read -r -p "选择 [1/q]: " REPLY || REPLY=q
+        else
+            echo "  非交互环境无法弹出选择, 请显式指定后重跑:"
+            echo "    bash scripts/run_e4.sh fresh   # 从零开始训练"
+            exit 1
+        fi
+        case "$REPLY" in
+            1) MODE=fresh;;  *) echo "退出"; exit 0;;
+        esac
     fi
-    case "$REPLY" in
-        1) MODE=skip;;  2) MODE=resume;;  3) MODE=fresh;;
-        *) echo "退出"; exit 0;;
-    esac
+fi
+
+# 显式指定但产物状态对不上时提前拦截, 不让 train.py 报晦涩错误
+if [ "$MODE" = "resume" ] && [ ! -d "$E4" ]; then
+    echo "!! $MODE 需要 $E4 存在, 但当前无产物"; exit 1
 fi
 
 EXTRA=()
