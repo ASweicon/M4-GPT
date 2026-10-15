@@ -1,27 +1,81 @@
 #!/usr/bin/env bash
 # E5: RF-GPT 式多任务指令续训 —— 从冻结的 E4 adapter 加载, 混合题库防遗忘.
 #
-#   起点: outputs/e4_lora (E4 成果, 只读, 不覆盖)
+#   起点: outputs/e4_lora (E4 成果, 只读, 不会被覆盖)
 #   数据: data/instruct_train.jsonl (fine+coarse rehearsal + 7 类信号新题)
 #   产物: outputs/e5_lora
+#   训完自动 fine 抽查, 对照 E4 (train top1≈0.40) 监控遗忘;
+#   9 类全量评估用 evaluate_gen.py.
 #
-# 额外参数透传给 train.py, 例: bash scripts/run_e5.sh --max_steps 1200
-# 训完的 fine 抽查用于对照 E4 (监控遗忘); 9 类全量评估用 evaluate_gen.py.
+# 用法: bash scripts/run_e5.sh [mode] [train.py 额外参数...]
+#   mode: skip   跳过训练, 只做 fine 抽查 (E5 已完成时用)
+#         resume 从 E5 现有 checkpoint 断点续训 (中断接续)
+#         fresh  从 E4 重新开始 E5 (删除现有 E5 进度, 需输入 yes 确认)
+#   不带 mode 时: 若 outputs/e5_lora 已存在则交互式询问, 防止覆盖训练进度;
+#               不存在则直接从 E4 起点开训.
+#   非交互环境 (管道/CI) 下检测到已有 E5 默认 skip, 不会动已训练权重.
+#   DRY=1 时只打印将执行的命令, 不实际运行 (预览用).
+#   例: bash scripts/run_e5.sh fresh --max_steps 1200
 set -e
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+E4=outputs/e4_lora
+E5=outputs/e5_lora
 
-if [ ! -d outputs/e4_lora ]; then
-    echo "!! outputs/e4_lora 不存在 —— 先运行: bash scripts/run_e4.sh"; exit 1
+run() { echo "+ $*"; [ "${DRY:-0}" = "1" ] && return 0; "$@"; }
+
+[ -f "$E4/adapter_model.safetensors" ] || {
+    echo "!! 缺 $E4 —— 先运行: bash scripts/run_e4.sh"; exit 1; }
+[ -f data/instruct_train.jsonl ] || {
+    echo "!! 缺 data/instruct_train.jsonl —— 先运行: python scripts/synthesize_instructions.py"; exit 1; }
+
+MODE="auto"
+if [ $# -gt 0 ]; then
+    case "$1" in skip|resume|fresh) MODE="$1"; shift;; esac
 fi
-if [ ! -f data/instruct_train.jsonl ]; then
-    echo "!! data/instruct_train.jsonl 不存在 —— 先运行: python scripts/synthesize_instructions.py"; exit 1
+
+if [ "$MODE" = "auto" ] && [ -d "$E5" ]; then
+    echo "检测到 $E5 已存在 —— E5 可能已有训练进度."
+    REPLY=""
+    if [ -t 0 ]; then
+        echo "  [1] skip   已完成, 跳过训练只做抽查"
+        echo "  [2] resume 从 E5 现有 checkpoint 断点续训"
+        echo "  [3] fresh  从 E4 重开 E5 (删除现有进度, 需确认)"
+        echo "  [q] 退出"
+        read -r -p "选择 [1/2/3/q]: " REPLY || REPLY=q
+    else
+        echo "  非交互模式, 默认 skip (如需 resume/fresh 请显式指定)"; REPLY=1
+    fi
+    case "$REPLY" in
+        1) MODE=skip;;  2) MODE=resume;;  3) MODE=fresh;;
+        *) echo "退出"; exit 0;;
+    esac
 fi
 
-python scripts/train.py --resume outputs/e4_lora \
-    --data data/instruct_train.jsonl \
-    --lr 2e-5 --max_steps 600 --ckpt outputs/e5_lora "$@"
+EXTRA=(--data data/instruct_train.jsonl)
+case "$MODE" in
+    skip)
+        [ -f "$E5/adapter_model.safetensors" ] || {
+            echo "!! $E5 下无 adapter 权重, 不能跳过训练"; exit 1; }
+        echo "== skip: E5 视为已完成, 仅 fine 抽查 =="
+        EXTRA=();;
+    resume)
+        echo "== resume: 从 $E5 断点续训 =="
+        EXTRA+=(--resume "$E5");;
+    fresh)
+        if [ -d "$E5" ]; then
+            REPLY=""
+            read -r -p "确认删除 $E5 并从 E4 重开? 输入 yes: " REPLY || REPLY=""
+            [ "$REPLY" = "yes" ] || { echo "已取消"; exit 1; }
+            rm -rf "$E5"
+        fi
+        echo "== fresh: 从 $E4 起点开始 E5 =="
+        EXTRA+=(--resume "$E4");;
+esac
 
-# fine 快速抽查: 与 E4 同口径 (train top1≈0.40), 显著下滑说明遗忘需调整
-python scripts/evaluate.py --ckpt outputs/e5_lora --split train \
+if [ "$MODE" != "skip" ]; then
+    EXTRA+=(--lr 2e-5 --max_steps 600 --ckpt "$E5")
+    run python scripts/train.py "${EXTRA[@]}" "$@"
+fi
+run python scripts/evaluate.py --ckpt "$E5" --split train \
     --per_pair 1 --limit 100 --cbatch 5

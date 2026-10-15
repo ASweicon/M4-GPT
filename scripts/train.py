@@ -123,8 +123,10 @@ def main():
     global CKPT
     CKPT = os.path.abspath(os.path.join(HERE, "..", args.ckpt))
     if args.resume and os.path.abspath(args.resume) == CKPT:
-        sys.exit("!! --resume 与 --ckpt 是同一目录: 续训会覆盖起点权重, "
-                 "请把新 checkpoint 放到不同目录 (如 outputs/e5_lora)")
+        print("!! 注意: --resume 与 --ckpt 为同一目录 —— 该目录现有权重将被续训进度覆盖.\n"
+              "   断点续训 (如 E4 中断后接续) 属正常用法, 可忽略;\n"
+              "   若起点是需保留的冻结产物 (如 outputs/e4_lora), 请把 --ckpt 指向新目录.",
+              flush=True)
 
     proc = AutoProcessor.from_pretrained(MODEL)
     if args.debug:
