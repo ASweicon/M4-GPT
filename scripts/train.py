@@ -115,7 +115,16 @@ def main():
                     help="直接指定训练用jsonl路径 (覆盖train split, 跳过--task过滤)")
     ap.add_argument("--resume", default="",
                     help="从已有 adapter 目录继续训练 (如 outputs/lora); 默认挂全新 LoRA")
+    ap.add_argument("--ckpt", default="outputs/lora",
+                    help="checkpoint 输出目录 (相对路径按项目根解析; "
+                         "E4 用 outputs/e4_lora, E5 用 outputs/e5_lora, 互不覆盖)")
     args = ap.parse_args()
+
+    global CKPT
+    CKPT = os.path.abspath(os.path.join(HERE, "..", args.ckpt))
+    if args.resume and os.path.abspath(args.resume) == CKPT:
+        sys.exit("!! --resume 与 --ckpt 是同一目录: 续训会覆盖起点权重, "
+                 "请把新 checkpoint 放到不同目录 (如 outputs/e5_lora)")
 
     proc = AutoProcessor.from_pretrained(MODEL)
     if args.debug:

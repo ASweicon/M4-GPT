@@ -49,7 +49,15 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--task", default="fine", choices=["fine", "coarse"],
                     help="fine: 50类动作名似然打分; coarse: 3类粗粒度打分")
+    ap.add_argument("--ckpt", default="outputs/lora",
+                    help="待评估的 adapter 目录 (相对路径按项目根解析; "
+                         "结果写入 outputs/eval/<目录名>/)")
     args = ap.parse_args()
+
+    global CKPT, OUT
+    CKPT = os.path.abspath(os.path.join(HERE, "..", args.ckpt))
+    OUT = os.path.abspath(os.path.join(
+        HERE, "..", "outputs", "eval", os.path.basename(CKPT.rstrip("/"))))
 
     proc = AutoProcessor.from_pretrained(MODEL)
     base = Qwen2VLForConditionalGeneration.from_pretrained(
