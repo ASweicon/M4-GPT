@@ -9,6 +9,7 @@ RTX 4090 优化版:
   - TF32 矩阵乘加速 (Ada 架构支持)
 """
 import argparse, json, os, random, sys, time
+from functools import partial
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils import clip_grad_norm_
@@ -184,7 +185,7 @@ def main():
     if args.max_train:
         train_ds.rows = train_ds.rows[:args.max_train]
     dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
-                    collate_fn=lambda b: collate(b, proc.tokenizer.pad_token_id),
+                    collate_fn=partial(collate, pad_id=proc.tokenizer.pad_token_id),
                     num_workers=args.workers, pin_memory=(DEVICE == "cuda"),
                     drop_last=True)
 
