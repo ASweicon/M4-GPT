@@ -11,6 +11,9 @@
 #   mode: skip   跳过训练, 只做 fine 抽查 (E5 已完成时用)
 #         resume 从 E5 现有 checkpoint 断点续训 (中断接续)
 #         fresh  从 E4 重新开始 E5 (删除现有 E5 进度, 需输入 yes 确认)
+#         eval   不训练, 只跑 E5 test 集跨被试终评:
+#                1) evaluate.py 似然口径 fine 200 题 (与 E4 test top1=0.275 直接可比)
+#                2) evaluate_gen.py 生成式 9 题型 × 30 题 (E5 新能力判决)
 #   不带 mode 时: 先报告产物状态 (有无 outputs/e5_lora), 再询问如何继续;
 #               无论有无产物都由用户明确选择, 不默认直接开训;
 #               非交互环境提示后退出, 需显式指定 mode.
@@ -24,15 +27,27 @@ E5=outputs/e5_lora
 
 run() { echo "+ $*"; [ "${DRY:-0}" = "1" ] && return 0; "$@"; }
 
+MODE="auto"
+if [ $# -gt 0 ]; then
+    case "$1" in skip|resume|fresh|eval) MODE="$1"; shift;; esac
+fi
+
+# eval 模式不训练也不依赖 E4 权重与 train 题库, 单独放行
+if [ "$MODE" = "eval" ]; then
+    [ -f "$E5/adapter_model.safetensors" ] || {
+        echo "!! $E5 下无 adapter_model.safetensors —— E5 未训练, 无法评估"; exit 1; }
+    echo "== eval: E5 test 集跨被试终评 (不训练) =="
+    run python scripts/evaluate.py --ckpt "$E5" --split test \
+        --per_pair 1 --limit 200 --cbatch 5
+    run python scripts/evaluate_gen.py --ckpt "$E5" --split test \
+        --per_task 30
+    exit 0
+fi
+
 [ -f "$E4/adapter_model.safetensors" ] || {
     echo "!! 缺 $E4 —— 先运行: bash scripts/run_e4.sh"; exit 1; }
 [ -f data/instruct_train.jsonl ] || {
     echo "!! 缺 data/instruct_train.jsonl —— 先运行: python scripts/synthesize_instructions.py"; exit 1; }
-
-MODE="auto"
-if [ $# -gt 0 ]; then
-    case "$1" in skip|resume|fresh) MODE="$1"; shift;; esac
-fi
 
 if [ "$MODE" = "auto" ]; then
     if [ -d "$E5" ]; then
