@@ -87,3 +87,15 @@ def coarse_group(action):
     if action in SIT_ACTIONS:
         return "sit-in-place"
     return "non-in-place"
+
+
+def swap_lr(text):
+    """左右翻转增强配套: 文本中 left<->right 互换 (含大写).
+
+    已验证: 50 类动作名互换后仍落在 50 类内; where/json/caption 中的
+    left/right 措辞同样自洽. 用占位符防止连环替换.
+    """
+    t = str(text).replace("left", "\x00").replace("right", "left")
+    t = t.replace("\x00", "right")
+    t = t.replace("Left", "\x00").replace("Right", "Left")
+    return t.replace("\x00", "Right")

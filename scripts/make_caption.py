@@ -20,12 +20,12 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from m4config import RPC, ACTION_NAMES, coarse_group
+from m4config import RPC, ACTION_NAMES, coarse_group, swap_lr
 from render_samples import open_db, get_frame, T
 
 DATA_ROOT = os.path.abspath(os.path.join(HERE, "..", "data"))
 
-FN_RE = re.compile(r"^s(\d+)_a(\d+)_f(\d+)\.png$")
+FN_RE = re.compile(r"^s(\d+)_a(\d+)_f(\d+)(flip)?\.png$")
 
 # ---- 描述阈值 (初版推测值, 待 --stats 分布校准后调整) ----
 POS_X = (-0.5, 0.5)     # BEV 水平: 左 / 中 / 右 (x 全程 -3 ~ 2.5 m)
@@ -83,7 +83,7 @@ def make_caption(feat, action, coarse):
 
 
 def collect_images(limit):
-    """从三个 jsonl 提取 unique 图片 (split, s, a, fc), 与训练管线一一对应."""
+    """从三个 jsonl 提取 unique 图片 (split, s, a, fc, flip), 与训练管线一一对应."""
     seen, rows = set(), []
     for sp in ("train", "val", "test"):
         p = os.path.join(DATA_ROOT, f"{sp}.jsonl")
@@ -96,7 +96,8 @@ def collect_images(limit):
                 m = FN_RE.match(os.path.basename(img))
                 if not m:
                     sys.exit(f"bad filename: {img}")
-                rows.append((sp, img, *map(int, m.groups())))
+                s, a, fc = map(int, m.groups()[:3])
+                rows.append((sp, img, s, a, fc, bool(m.group(4))))
                 if limit and len(rows) >= limit:
                     break
         if limit and len(rows) >= limit:
@@ -116,12 +117,17 @@ def main():
     env = open_db(RPC, 8)
     out, stats = [], defaultdict(lambda: defaultdict(list))
     with env.begin() as txn:
-        for sp, img, s, a, fc in rows:
+        for sp, img, s, a, fc, flip in rows:
             name, cg = ACTION_NAMES[a], coarse_group(a)
             feat = clip_features(txn, s, a, fc)
             if feat is None:
                 print(f"!! no points for {img}, skipped", flush=True)
                 continue
+            if flip:
+                # 左右翻转: x 取负 (zone 的 left/right 自动随 x 正确),
+                # path_len/extent/points 与 x 无符号性, 不变
+                name = swap_lr(name)
+                feat = dict(feat, centroid_x=round(-feat["centroid_x"], 3))
             if args.stats:
                 g = stats[cg]
                 for k in ("points", "centroid_z", "path_len", "centroid_x", "centroid_y"):
