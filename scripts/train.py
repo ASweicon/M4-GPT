@@ -49,13 +49,23 @@ class M4Dataset(Dataset):
 
     def encode(self, row):
         img = Image.open(os.path.join(DATA_ROOT, row["image"])).convert("RGB")
-        q = row["messages"][0]["content"].replace("<image>\n", "")
-        a = row["messages"][1]["content"]
-        prompt = [{"role": "user",
-                   "content": [{"type": "image", "image": img},
-                               {"type": "text", "text": q}]}]
-        full = prompt + [{"role": "assistant",
-                          "content": [{"type": "text", "text": a}]}]
+        msgs = row["messages"]
+        if len(msgs) % 2 or msgs[-1]["role"] != "assistant":
+            raise ValueError(f"messages 须为 user/assistant 交替且以 assistant 结尾: {row['image']}")
+        # 多轮: 最后一条 assistant 为监督目标, 之前所有轮 (含历史回答) 全部作为 prompt 上下文
+        convo = []
+        for m in msgs:
+            raw = m["content"]
+            text = raw.replace("<image>\n", "").replace("<image>", "")
+            if m["role"] == "user":
+                content = ([{"type": "image", "image": img},
+                            {"type": "text", "text": text}]
+                           if "<image>" in raw else text)
+                convo.append({"role": "user", "content": content})
+            else:
+                convo.append({"role": "assistant",
+                              "content": [{"type": "text", "text": text}]})
+        prompt, full = convo[:-1], convo
         pk = self.proc.apply_chat_template(
             prompt, add_generation_prompt=True, tokenize=True,
             return_dict=True, return_tensors="pt")
@@ -116,6 +126,8 @@ def main():
                     help="直接指定训练用jsonl路径 (覆盖train split, 跳过--task过滤)")
     ap.add_argument("--resume", default="",
                     help="从已有 adapter 目录继续训练 (如 outputs/lora); 默认挂全新 LoRA")
+    ap.add_argument("--save_every", type=int, default=0,
+                    help="每 N 步存一个快照到 CKPT/stepN (0=只在每100步存主目录+结束时存)")
     ap.add_argument("--ckpt", default="outputs/lora",
                     help="checkpoint 输出目录 (相对路径按项目根解析; "
                          "E4 用 outputs/e4_lora, E5 用 outputs/e5_lora, 互不覆盖)")
@@ -224,6 +236,10 @@ def main():
                 running = 0.0
             if step % 100 == 0:
                 model.save_pretrained(CKPT); proc.save_pretrained(CKPT)
+            if args.save_every and step % args.save_every == 0:
+                snap = os.path.join(CKPT, f"step{step}")
+                model.save_pretrained(snap); proc.save_pretrained(snap)
+                print(f"  snapshot -> {snap}", flush=True)
     model.save_pretrained(CKPT)
     proc.save_pretrained(CKPT)
     print("SAVED to", CKPT, flush=True)

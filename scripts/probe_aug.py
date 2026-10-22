@@ -307,6 +307,26 @@ def grouped_folds(subjects, k):
     return [{i for i, s in enumerate(subjects) if s in g} for g in groups]
 
 
+def random_folds(n, k):
+    """同被试口径: 随机切折 (同一被试的样本会同时出现在训练折和验证折).
+    与 grouped_folds 形成"同被试 vs 跨被试"对照, 其余条件完全相同."""
+    idx = np.random.RandomState(1).permutation(n)
+    return [set(a.tolist()) for a in np.array_split(idx, min(k, n))]
+
+
+def cv_score(xt, y_tr, cfg, folds):
+    """用固定超参跑一遍 CV, 返回 (平均准确率, 各折准确率)."""
+    kind, lr, wd, eps = cfg
+    accs = []
+    for f in folds:
+        hold = np.fromiter(f, dtype=np.int64, count=len(f))
+        tr_idx = np.setdiff1d(np.arange(len(y_tr)), hold)
+        head = fit(xt[tr_idx], y_tr[tr_idx], kind, lr, wd, eps)
+        p = torch.softmax(torch.tensor(predict(head, xt[hold])), 1).numpy()
+        accs.append(float((p.argmax(1) == (y_tr[hold] - 1)).mean()))
+    return float(np.mean(accs)), accs
+
+
 def evaluate_features(x_tr, y_tr, s_tr, x_te, y_te, epochs, epoch_grid, folds_n,
                       seeds, log_prefix=""):
     """标准化 -> 按被试分组 CV 选头/超参 -> 全量重训多种子平均 -> test 指标.
@@ -340,6 +360,13 @@ def evaluate_features(x_tr, y_tr, s_tr, x_te, y_te, epochs, epoch_grid, folds_n,
     kind, lr, wd, eps = best_cfg
     print(f"[{log_prefix}cv] best {best_cfg} acc={best:.4f}", flush=True)
 
+    # 同被试对照: 同一组超参、同一批特征, 只把折改成随机切 (被试不互斥)
+    cv_random, rnd_accs = cv_score(xt, y_tr, best_cfg,
+                                   random_folds(len(y_tr), folds_n))
+    print(f"[{log_prefix}cv] 同被试(随机折) acc={cv_random:.4f} "
+          f"folds={[round(a, 3) for a in rnd_accs]} "
+          f"(跨被试 {best:.4f}, 差 {100*(cv_random-best):+.1f}pp)", flush=True)
+
     # 用全部 train 特征训练最终头, 多种子概率平均
     prob_sum = np.zeros((len(y_te), 50), dtype=np.float64)
     for s in range(seeds):
@@ -350,7 +377,8 @@ def evaluate_features(x_tr, y_tr, s_tr, x_te, y_te, epochs, epoch_grid, folds_n,
     gid, n_group = merge_group_ids()
     res, probs = metrics(np.log(probs + 1e-12), y_te, gid, n_group)
     res.update({"best_cfg": {"head": kind, "lr": lr, "wd": wd, "epochs": eps},
-                "cv_acc_grouped": best, "seeds": seeds,
+                "cv_acc_grouped": best, "cv_acc_random_folds": cv_random,
+                "seeds": seeds,
                 "n_train": int(len(y_tr)), "n_test": int(len(y_te)),
                 "feat_dim": int(x_tr.shape[1])})
     return res, probs
