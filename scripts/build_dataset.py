@@ -4,7 +4,8 @@ import argparse, glob, json, os, random, sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(__file__))
-from m4config import (RPC, ACTION_NAMES, coarse_group, S2_TEST, S2_VAL)
+from m4config import (RPC, ACTION_NAMES, coarse_group, S2_TEST, S2_VAL,
+                      swap_lr)
 from render_samples import open_db, list_frames, render_clip
 
 DATA_ROOT = os.path.abspath(
@@ -42,9 +43,11 @@ def center_frames(frames, k):
     return [valid[i] for i in sorted(set(idx))]
 
 
-def make_records(s, a, fc, img_rel):
+def make_records(s, a, fc, img_rel, flip=False):
     name = ACTION_NAMES[a]; cg = coarse_group(a)
-    rng = random.Random(hash((s, a, fc)) & 0xffffffff)
+    if flip:
+        name = swap_lr(name)      # 已验证互换后仍在 50 类内
+    rng = random.Random(hash((s, a, fc, flip)) & 0xffffffff)
     return [
         {"image": img_rel, "messages": [
             {"role": "user", "content": "<image>\n" + rng.choice(FINE_Q)},
@@ -130,6 +133,14 @@ def main():
                         out = os.path.join(DATA_ROOT, "images", sp, fn)
                         render_clip(txn, s, a, fc, out)
                         records.extend(make_records(s, a, fc, rel))
+                        if sp == "train":   # 左右翻转增强, 仅训练集
+                            fn_f = f"s{s}_a{a:02d}_f{fc}flip.png"
+                            rel_f = f"images/{sp}/{fn_f}"
+                            render_clip(txn, s, a, fc,
+                                        os.path.join(DATA_ROOT, rel_f),
+                                        flip=True)
+                            records.extend(make_records(s, a, fc, rel_f,
+                                                        flip=True))
                 print(f"[{sp}] subject {s} done, records={len(records)}",
                       flush=True)
             random.Random(0).shuffle(records)

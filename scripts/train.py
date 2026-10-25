@@ -9,6 +9,7 @@ RTX 4090 优化版:
   - TF32 矩阵乘加速 (Ada 架构支持)
 """
 import argparse, json, os, random, sys, time
+from functools import partial
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils import clip_grad_norm_
@@ -48,13 +49,23 @@ class M4Dataset(Dataset):
 
     def encode(self, row):
         img = Image.open(os.path.join(DATA_ROOT, row["image"])).convert("RGB")
-        q = row["messages"][0]["content"].replace("<image>\n", "")
-        a = row["messages"][1]["content"]
-        prompt = [{"role": "user",
-                   "content": [{"type": "image", "image": img},
-                               {"type": "text", "text": q}]}]
-        full = prompt + [{"role": "assistant",
-                          "content": [{"type": "text", "text": a}]}]
+        msgs = row["messages"]
+        if len(msgs) % 2 or msgs[-1]["role"] != "assistant":
+            raise ValueError(f"messages 须为 user/assistant 交替且以 assistant 结尾: {row['image']}")
+        # 多轮: 最后一条 assistant 为监督目标, 之前所有轮 (含历史回答) 全部作为 prompt 上下文
+        convo = []
+        for m in msgs:
+            raw = m["content"]
+            text = raw.replace("<image>\n", "").replace("<image>", "")
+            if m["role"] == "user":
+                content = ([{"type": "image", "image": img},
+                            {"type": "text", "text": text}]
+                           if "<image>" in raw else text)
+                convo.append({"role": "user", "content": content})
+            else:
+                convo.append({"role": "assistant",
+                              "content": [{"type": "text", "text": text}]})
+        prompt, full = convo[:-1], convo
         pk = self.proc.apply_chat_template(
             prompt, add_generation_prompt=True, tokenize=True,
             return_dict=True, return_tensors="pt")
@@ -115,7 +126,20 @@ def main():
                     help="直接指定训练用jsonl路径 (覆盖train split, 跳过--task过滤)")
     ap.add_argument("--resume", default="",
                     help="从已有 adapter 目录继续训练 (如 outputs/lora); 默认挂全新 LoRA")
+    ap.add_argument("--save_every", type=int, default=0,
+                    help="每 N 步存一个快照到 CKPT/stepN (0=只在每100步存主目录+结束时存)")
+    ap.add_argument("--ckpt", default="outputs/lora",
+                    help="checkpoint 输出目录 (相对路径按项目根解析; "
+                         "E4 用 outputs/e4_lora, E5 用 outputs/e5_lora, 互不覆盖)")
     args = ap.parse_args()
+
+    global CKPT
+    CKPT = os.path.abspath(os.path.join(HERE, "..", args.ckpt))
+    if args.resume and os.path.abspath(args.resume) == CKPT:
+        print("!! 注意: --resume 与 --ckpt 为同一目录 —— 该目录现有权重将被续训进度覆盖.\n"
+              "   断点续训 (如 E4 中断后接续) 属正常用法, 可忽略;\n"
+              "   若起点是需保留的冻结产物 (如 outputs/e4_lora), 请把 --ckpt 指向新目录.",
+              flush=True)
 
     proc = AutoProcessor.from_pretrained(MODEL)
     if args.debug:
@@ -173,7 +197,7 @@ def main():
     if args.max_train:
         train_ds.rows = train_ds.rows[:args.max_train]
     dl = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
-                    collate_fn=lambda b: collate(b, proc.tokenizer.pad_token_id),
+                    collate_fn=partial(collate, pad_id=proc.tokenizer.pad_token_id),
                     num_workers=args.workers, pin_memory=(DEVICE == "cuda"),
                     drop_last=True)
 
@@ -212,6 +236,10 @@ def main():
                 running = 0.0
             if step % 100 == 0:
                 model.save_pretrained(CKPT); proc.save_pretrained(CKPT)
+            if args.save_every and step % args.save_every == 0:
+                snap = os.path.join(CKPT, f"step{step}")
+                model.save_pretrained(snap); proc.save_pretrained(snap)
+                print(f"  snapshot -> {snap}", flush=True)
     model.save_pretrained(CKPT)
     proc.save_pretrained(CKPT)
     print("SAVED to", CKPT, flush=True)
