@@ -100,7 +100,18 @@ def build_llm(args):
                          bias="none", task_type="CAUSAL_LM")
         model = get_peft_model(model, cfg)
         model.print_trainable_parameters()
+        model.train()
+        if args.grad_checkpoint:
+            model.gradient_checkpointing_enable()
+            model.config.use_cache = False
     return tokenizer, model
+
+
+def save_ckpt(out_dir, encoder, model, stage):
+    out_dir.mkdir(parents=True, exist_ok=True)
+    torch.save(encoder.state_dict(), out_dir / f"encoder_{stage}.pt")
+    if stage == "sft":
+        model.save_pretrained(out_dir / "lora")
 
 
 def make_batch(tokenizer, model, radar_tokens, recs, stage):
@@ -150,6 +161,9 @@ def main():
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--subjects", default="1,2")
     ap.add_argument("--max-steps", type=int, default=0)
+    ap.add_argument("--grad-accum", type=int, default=1)
+    ap.add_argument("--grad-checkpoint", action="store_true")
+    ap.add_argument("--save-every", type=int, default=0)
     args = ap.parse_args()
 
     root = Path(args.root)
@@ -168,6 +182,9 @@ def main():
         trainable += [p for p in model.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(trainable, lr=args.lr)
 
+    out_dir = root / args.out
+    out_dir.mkdir(parents=True, exist_ok=True)
+
     subjects = tuple(int(x) for x in args.subjects.split(",") if x)
     global_step = 0
     for epoch in range(args.epochs):
@@ -181,20 +198,22 @@ def main():
             radar = encoder(x)
             emb, mask, labels = make_batch(tokenizer, model, radar, batch["rec"], args.stage)
             out = model(inputs_embeds=emb, attention_mask=mask, labels=labels, use_cache=False)
-            opt.zero_grad()
-            out.loss.backward()
-            opt.step()
-            if global_step % 10 == 0:
-                print(f"epoch {epoch} step {global_step} loss {out.loss.item():.4f}", flush=True)
-            global_step += 1
+            if step % args.grad_accum == 0:
+                opt.zero_grad(set_to_none=True)
+            loss = out.loss / args.grad_accum
+            loss.backward()
+            if (step + 1) % args.grad_accum == 0:
+                torch.nn.utils.clip_grad_norm_(trainable, 1.0)
+                opt.step()
+                global_step += 1
+                if global_step % 10 == 0:
+                    print(f"epoch {epoch} step {global_step} loss {out.loss.item():.4f}", flush=True)
+                if args.save_every and global_step % args.save_every == 0:
+                    save_ckpt(out_dir, encoder, model, args.stage)
         if args.max_steps and global_step >= args.max_steps:
             break
 
-    out_dir = root / args.out
-    out_dir.mkdir(parents=True, exist_ok=True)
-    torch.save(encoder.state_dict(), out_dir / f"encoder_{args.stage}.pt")
-    if args.stage == "sft":
-        model.save_pretrained(out_dir / "lora")
+    save_ckpt(out_dir, encoder, model, args.stage)
     print("saved to", out_dir)
 
 
