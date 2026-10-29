@@ -189,7 +189,8 @@ def main():
     global_step = 0
     for epoch in range(args.epochs):
         loader = make_loader(files, root, pairs, args.batch, subjects)
-        for step, batch in enumerate(loader):
+        pending = 0  # micro-batches accumulated since the last optimizer step
+        for batch in loader:
             if args.max_steps and global_step >= args.max_steps:
                 break
             if batch is None:
@@ -198,18 +199,27 @@ def main():
             radar = encoder(x)
             emb, mask, labels = make_batch(tokenizer, model, radar, batch["rec"], args.stage)
             out = model(inputs_embeds=emb, attention_mask=mask, labels=labels, use_cache=False)
-            if step % args.grad_accum == 0:
+            if pending == 0:
                 opt.zero_grad(set_to_none=True)
             loss = out.loss / args.grad_accum
             loss.backward()
-            if (step + 1) % args.grad_accum == 0:
+            pending += 1
+            if pending == args.grad_accum:
                 torch.nn.utils.clip_grad_norm_(trainable, 1.0)
                 opt.step()
+                pending = 0
                 global_step += 1
                 if global_step % 10 == 0:
                     print(f"epoch {epoch} step {global_step} loss {out.loss.item():.4f}", flush=True)
                 if args.save_every and global_step % args.save_every == 0:
                     save_ckpt(out_dir, encoder, model, args.stage)
+        # flush the tail group, otherwise a partial accumulation is silently dropped
+        if pending:
+            torch.nn.utils.clip_grad_norm_(trainable, 1.0)
+            opt.step()
+            opt.zero_grad(set_to_none=True)
+            global_step += 1
+            print(f"epoch {epoch} flush tail step {global_step} loss {out.loss.item():.4f}", flush=True)
         if args.max_steps and global_step >= args.max_steps:
             break
 
