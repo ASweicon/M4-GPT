@@ -378,3 +378,44 @@ SNR 退化、遮挡/多径、跨配置、跨被试、镜像反事实。
 - LWM-Spectro: https://arxiv.org/abs/2601.08780
 - mmWave-QA: https://mmwave-qa.github.io/
 - M4Human: https://arxiv.org/abs/2512.12378
+
+## 14. I/Q 数据管线与编码器（2026-10-29）
+
+**决策**：主线只做 **I/Q**。RT 暂不做——本地没有处理包，且 M4Human 的 RT 是 x-y-z 功率体素，**没有 Doppler、没有相位**；以后最多做对照。
+
+### 14.1 数据转换
+
+- `.mat` → int16 I/Q LMDB：key `[subject, action, frame]`；header `<IIIIf`；int16 `(2, 320, 151)` = I plane + Q plane；每帧一个 float32 scale。
+- 已完成：p1 **28,573** 帧；p2 **19,072** 帧（1 帧损坏）；p17 **33,987** 帧（0 损坏）；量化 RRMSE **5.5e-5**。
+- 体积：p1 5.2 G / p2 3.5 G / p17 6.2 G；全量 20 人约 **119 G**。
+- p19 仍在下载。
+
+### 14.2 轴校验（关键结论）
+
+- 直接对 151 点做 IFFT：峰在 **0 m**，被近距直达波/静态杂波压住。
+- 帧间背景相减 + Hann + IFFT：峰 **2.17–2.21 m**，与同帧 RPC 中位数 **2.61 m**（p10 2.31 / p90 4.82）一致。
+- 轴顺序：**16 天线对 = `pairs` 第 0 列，20 chirp = 第 1 列**；反向后 Doppler 谱变成平顶，确认选对。
+- **前端必须包含帧间杂波抑制**，否则 range 峰落在 0 m。
+
+### 14.3 编码器与脚本
+
+| 文件 | 作用 |
+|---|---|
+| `radar_encoder/dsp.py` | 背景相减 → Hann → range IFFT(256) → Doppler FFT(20) → angle FFT(16) → `[T,2,256,20,16]`（log 幅度 + 相位/π）|
+| `radar_encoder/encoder.py` | 3D CNN → 每帧 16 spatial token → 2 层时序 Transformer → 16 queries → MLP 到 4096 |
+| `radar_encoder/dataset.py` | `IQClipDataset`，T=16、stride=8；支持 `load_clip_at` |
+| `radar_encoder/index.py` | 生成 `manifest.json` / `splits.json`（train 1,2；val 17；test 19）|
+| `radar_encoder/text.py` | 从 SMPL-X + 动作名生成 caption/QA；p1/p2/p17 共 **10,025** clips |
+| `radar_encoder/train.py` | align / sft 两阶段，Qwen3-8B + LoRA |
+| `radar_encoder/evaluate.py` | 生成式评测 |
+| `radar_encoder/test_dsp.py` | NumPy DSP 校验（本地已跑）|
+| `radar_encoder/smoke_test.py` | 端到端形状测试（需 torch，服务器跑）|
+
+本地已验：DSP 输出 `(16,2,256,20,16)`；p2 dataset 2,341 clips；text 样例已生成。
+
+### 14.4 待办
+
+- p19 下载 → 转换 → 删 zip；
+- 服务器跑 `smoke_test.py`（torch）；
+- 训练先 1.7B 代理，再 8B；
+- RT 对照需要官方 `radar_comp.lmdb`（约 50 G），暂不做。
