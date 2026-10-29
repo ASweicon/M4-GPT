@@ -35,6 +35,7 @@ def main():
     ap.add_argument("--lora", default="")
     ap.add_argument("--llm", default="Qwen/Qwen3-8B")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--turn", type=int, default=0, help="0=action, 1=coarse, 2=movement, 3=height")
     ap.add_argument("--out", default="outputs/iq_eval.jsonl")
     args = ap.parse_args()
 
@@ -68,7 +69,11 @@ def main():
         x = ds_cache[s].load_clip_at(a, rec["center"])
         if x is None:
             continue
-        user = next(m["content"] for m in rec["messages"] if m["role"] == "user")
+        users = [m["content"] for m in rec["messages"] if m["role"] == "user"]
+        answers = [m["content"] for m in rec["messages"] if m["role"] == "assistant"]
+        t = min(args.turn, len(users) - 1)
+        user = users[t]
+        ref = answers[t]
         prompt = f"{IM_START}user\n{user}{IM_END}\n{IM_START}assistant\n"
         with torch.no_grad():
             radar = encoder(torch.from_numpy(x).unsqueeze(0).to(next(model.parameters()).device))
@@ -78,7 +83,7 @@ def main():
             gen = model.generate(inputs_embeds=emb, max_new_tokens=64, do_sample=False)
         text = tokenizer.decode(gen[0], skip_special_tokens=True).strip()
         out.write(json.dumps({"key": rec["key"], "question": user,
-                              "pred": text, "ref": rec["messages"][1]["content"]},
+                              "pred": text, "ref": ref},
                              ensure_ascii=False) + "\n")
         print(rec["key"], "->", text[:80])
     out.close()
