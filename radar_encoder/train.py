@@ -41,6 +41,8 @@ class ClipTextDataset(Dataset):
         self.pairs = pairs
         self.t_frames = t_frames
         self.ds = {}
+        manifest = json.load(open(self.root / "data/meta/manifest.json"))
+        self.lmdb_rel = {int(k): v["lmdb"] for k, v in manifest["subjects"].items()}
 
     def _get_ds(self, subject, lmdb_rel):
         if subject not in self.ds:
@@ -63,9 +65,6 @@ class ClipTextDataset(Dataset):
 
 def make_loader(items, root, pairs, batch_size):
     ds = ClipTextDataset(items, root, pairs)
-    # lmdb path per subject from manifest
-    manifest = json.load(open(Path(root) / "data/meta/manifest.json"))
-    ds.lmdb_rel = {int(k): v["lmdb"] for k, v in manifest["subjects"].items()}
 
     def collate(batch):
         batch = [b for b in batch if b is not None]

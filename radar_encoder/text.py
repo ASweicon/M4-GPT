@@ -17,10 +17,10 @@ from pathlib import Path
 import numpy as np
 
 try:
-    from .dataset import IQClipDataset, parse_key
+    from .dataset import IQClipDataset
     from .dsp import load_pairs
 except ImportError:
-    from dataset import IQClipDataset, parse_key
+    from dataset import IQClipDataset
     from dsp import load_pairs
 
 ROOT = Path(__file__).resolve().parents[2]

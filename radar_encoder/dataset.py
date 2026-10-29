@@ -5,6 +5,8 @@ Keys are "[subject, action, frame]". A clip is T consecutive stored frames
 (T=16 by default, stride=8), converted to a range-Doppler-angle tensor by dsp.py.
 """
 
+import struct
+
 import lmdb
 import numpy as np
 
@@ -13,8 +15,6 @@ try:
 except ImportError:  # run as a plain script
     from dsp import iq_to_rda
 
-HDR = None
-import struct
 HDR = struct.Struct("<IIIIf")
 
 
