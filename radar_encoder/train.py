@@ -32,11 +32,12 @@ IM_END = "<|im_end|>"
 
 
 class ClipTextDataset(Dataset):
-    def __init__(self, jsonl_files, root, pairs, t_frames=16):
+    def __init__(self, jsonl_files, root, pairs, t_frames=16, subjects=(1, 2)):
         self.items = []
         for f in jsonl_files:
             with open(f) as fi:
                 self.items.extend([json.loads(line) for line in fi if line.strip()])
+        self.items = [x for x in self.items if int(x["subject"]) in subjects]
         self.root = Path(root)
         self.pairs = pairs
         self.t_frames = t_frames
@@ -63,8 +64,8 @@ class ClipTextDataset(Dataset):
         return {"x": x, "rec": rec}
 
 
-def make_loader(items, root, pairs, batch_size):
-    ds = ClipTextDataset(items, root, pairs)
+def make_loader(items, root, pairs, batch_size, subjects):
+    ds = ClipTextDataset(items, root, pairs, subjects=subjects)
 
     def collate(batch):
         batch = [b for b in batch if b is not None]
@@ -147,6 +148,8 @@ def main():
     ap.add_argument("--lr", type=float, default=1e-4)
     ap.add_argument("--out", default="outputs/iq_encoder")
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--subjects", default="1,2")
+    ap.add_argument("--max-steps", type=int, default=0)
     args = ap.parse_args()
 
     root = Path(args.root)
@@ -165,9 +168,13 @@ def main():
         trainable += [p for p in model.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(trainable, lr=args.lr)
 
+    subjects = tuple(int(x) for x in args.subjects.split(",") if x)
+    global_step = 0
     for epoch in range(args.epochs):
-        loader = make_loader(files, root, pairs, args.batch)
+        loader = make_loader(files, root, pairs, args.batch, subjects)
         for step, batch in enumerate(loader):
+            if args.max_steps and global_step >= args.max_steps:
+                break
             if batch is None:
                 continue
             x = batch["x"].to(device)
@@ -177,8 +184,11 @@ def main():
             opt.zero_grad()
             out.loss.backward()
             opt.step()
-            if step % 10 == 0:
-                print(f"epoch {epoch} step {step} loss {out.loss.item():.4f}", flush=True)
+            if global_step % 10 == 0:
+                print(f"epoch {epoch} step {global_step} loss {out.loss.item():.4f}", flush=True)
+            global_step += 1
+        if args.max_steps and global_step >= args.max_steps:
+            break
 
     out_dir = root / args.out
     out_dir.mkdir(parents=True, exist_ok=True)

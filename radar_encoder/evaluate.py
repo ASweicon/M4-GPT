@@ -77,8 +77,9 @@ def main():
             emb = torch.cat([radar, model.get_input_embeddings()(p_ids)], dim=1)
             gen = model.generate(inputs_embeds=emb, max_new_tokens=64, do_sample=False)
         text = tokenizer.decode(gen[0], skip_special_tokens=True).strip()
-        out.write(json.dumps({"key": rec["key"], "pred": text,
-                              "ref": rec["messages"][1]["content"]}, ensure_ascii=False) + "\n")
+        out.write(json.dumps({"key": rec["key"], "question": user,
+                              "pred": text, "ref": rec["messages"][1]["content"]},
+                             ensure_ascii=False) + "\n")
         print(rec["key"], "->", text[:80])
     out.close()
 

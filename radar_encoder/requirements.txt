@@ -1,0 +1,6 @@
+numpy
+lmdb
+torch
+transformers
+accelerate
+peft
