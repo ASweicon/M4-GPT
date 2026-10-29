@@ -2,16 +2,19 @@
 """NumPy-only DSP check: load a p2 clip, run iq_to_rda, compare range peak to RPC."""
 
 import json
+import os
 import struct
+from pathlib import Path
 
 import lmdb
 import numpy as np
 
 from dsp import iq_to_rda, load_pairs, range_peak_m, range_profile
 
-IQ = "/Users/weicongbing/Desktop/m4gpt/data/iq/p2_iq_int16.lmdb"
-RPC = "/Users/weicongbing/Desktop/m4gpt/radar_pc.lmdb"
-CFG = "/Users/weicongbing/Desktop/m4gpt/data/meta/p2_radar_config.json"
+ROOT = Path(os.environ.get("M4ROOT", "/Users/weicongbing/Desktop/m4gpt"))
+IQ = str(ROOT / "data/iq/p2_iq_int16.lmdb")
+RPC = str(ROOT / "radar_pc.lmdb")
+CFG = str(ROOT / "data/meta/p2_radar_config.json")
 HDR = struct.Struct("<IIIIf")
 
 
