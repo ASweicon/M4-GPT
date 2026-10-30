@@ -73,10 +73,14 @@ def iq_feat(iq, pairs):
     return np.concatenate([rp, dp, ap, stats]).astype(np.float32)
 
 
-def rpc_feat(frames, action, subject, env):
+def rpc_feat(frames, action, subject, env, frame_to_idx):
+    """I/Q 库用被试内全局帧号，点云库用动作内序号，这里按排序序号映射。"""
     vals = []
     for f in frames:
-        p = read_rpc(env, f"[{subject}, {action}, {f}]")
+        idx = frame_to_idx.get(f)
+        if idx is None:
+            continue
+        p = read_rpc(env, f"[{subject}, {action}, {idx}]")
         if p is None or len(p) == 0:
             continue
         xyz = p[:, :3]
@@ -107,6 +111,8 @@ def collect(subjects, per_action, t_frames, stride, pairs):
         by = collections.defaultdict(list)
         for a, frames in ds.clips:
             by[a].append(frames)
+        order = {a: {f: i for i, f in enumerate(sorted(fs))}
+                 for a, fs in ds.frames_by_action.items()}
         for a, clips in sorted(by.items()):
             rng.shuffle(clips)
             for frames in clips[:per_action]:
@@ -114,7 +120,7 @@ def collect(subjects, per_action, t_frames, stride, pairs):
                 if iq is None:
                     continue
                 fi = iq_feat(iq, pairs)
-                fr = rpc_feat(frames, a, sub, iq_env)
+                fr = rpc_feat(frames, a, sub, iq_env, order[a])
                 if fr is None:
                     continue
                 X_iq.append(fi)
