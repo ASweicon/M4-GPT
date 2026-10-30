@@ -26,6 +26,26 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[2]
 CODE_ROOT = Path(__file__).resolve().parents[1]
 FPS = 12.0
+IM_START = "<|im_start|>"
+IM_END = "<|im_end|>"
+
+
+def build_prompt(tokenizer, user):
+    """Build the user prompt exactly as generation will see it.
+
+    Qwen3 defaults to thinking mode; training and evaluation must both use
+    enable_thinking=False, otherwise the prompt token ids differ and the
+    generated text starts with reasoning instead of the answer.
+    """
+    msgs = [{"role": "user", "content": user}]
+    if getattr(tokenizer, "chat_template", None):
+        try:
+            return tokenizer.apply_chat_template(
+                msgs, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+        except TypeError:  # tokenizer without the enable_thinking switch
+            return tokenizer.apply_chat_template(
+                msgs, tokenize=False, add_generation_prompt=True)
+    return f"{IM_START}user\n{user}{IM_END}\n{IM_START}assistant\n"
 
 
 def load_m4config():

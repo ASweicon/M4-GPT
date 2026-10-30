@@ -21,13 +21,14 @@ try:
     from .dataset import IQClipDataset, parse_key
     from .dsp import load_pairs
     from .encoder import build_encoder, count_params
+    from .text import IM_END, build_prompt
 except ImportError:
     from dataset import IQClipDataset, parse_key
     from dsp import load_pairs
     from encoder import build_encoder, count_params
+    from text import IM_END, build_prompt
 
 ROOT = Path(__file__).resolve().parents[2]
-IM_START = "<|im_start|>"
 IM_END = "<|im_end|>"
 
 
@@ -124,7 +125,7 @@ def make_batch(tokenizer, model, radar_tokens, recs, stage):
             msgs = rec["messages"]
             user = next(m["content"] for m in msgs if m["role"] == "user")
             answer = next(m["content"] for m in msgs if m["role"] == "assistant")
-        prompt = f"{IM_START}user\n{user}{IM_END}\n{IM_START}assistant\n"
+        prompt = build_prompt(tokenizer, user)
         p_ids = tokenizer(prompt, return_tensors="pt", add_special_tokens=False).input_ids.to(radar_tokens.device)
         a_ids = tokenizer(answer + IM_END, return_tensors="pt", add_special_tokens=False).input_ids.to(radar_tokens.device)
         p_emb = embed(p_ids)
@@ -164,6 +165,7 @@ def main():
     ap.add_argument("--grad-accum", type=int, default=1)
     ap.add_argument("--grad-checkpoint", action="store_true")
     ap.add_argument("--save-every", type=int, default=0)
+    ap.add_argument("--init-encoder", default="", help="sft 阶段用 align 产出的 encoder 权重初始化")
     args = ap.parse_args()
 
     root = Path(args.root)
@@ -174,7 +176,11 @@ def main():
 
     tokenizer, model = build_llm(args)
     device = next(model.parameters()).device
+    llm_dtype = next(model.parameters()).dtype
     encoder = build_encoder(llm_dim=model.config.hidden_size).to(device)
+    if args.init_encoder:
+        encoder.load_state_dict(torch.load(args.init_encoder, map_location="cpu"))
+        print("encoder init from", args.init_encoder)
     print("encoder params:", f"{count_params(encoder):,}")
 
     trainable = list(encoder.parameters())
@@ -196,7 +202,9 @@ def main():
             if batch is None:
                 continue
             x = batch["x"].to(device)
-            radar = encoder(x)
+            # LLM 以 bf16 加载，而 encoder 用 fp32 训练；不转 dtype 会在
+            # inputs_embeds 拼接触发 mat1/mat2 dtype 报错
+            radar = encoder(x).to(llm_dtype)
             emb, mask, labels = make_batch(tokenizer, model, radar, batch["rec"], args.stage)
             out = model(inputs_embeds=emb, attention_mask=mask, labels=labels, use_cache=False)
             if pending == 0:

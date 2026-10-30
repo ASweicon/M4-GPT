@@ -419,3 +419,15 @@ SNR 退化、遮挡/多径、跨配置、跨被试、镜像反事实。
 - 服务器跑 `smoke_test.py`（torch）；
 - 训练先 1.7B 代理，再 8B；
 - RT 对照需要官方 `radar_comp.lmdb`（约 50 G），暂不做。
+
+### 14.5 代码状态核对（2026-10-30）
+
+分支 `rewrite/raw-radar-llm`，最新提交 `78d02e0`（梯度累积尾组 flush）。以下为在本机实际核对过的状态，代替之前的口头描述：
+
+- 布局：数据在 `~/Desktop/m4gpt/data`，仓库在 `~/Desktop/m4gpt/M4-GPT`；脚本 `ROOT = parents[2]` 解析到 `m4gpt`，默认路径可用。
+- 数据：p1 5.2 G / 28,573 帧；p2 3.5 G / 19,072 帧；p17 6.2 G / 33,987 帧；合计 15 G。
+- 文本：10,025 clips（p1 3,506 / p2 2,341 / p17 4,178），不含重复的测试子集；`data/text/test_p17_30per.jsonl` 为 1,500 条抽样。**没有 p19 数据与文本**。
+- 修复 `evaluate.py`：encoder 输出 fp32，而 LLM 以 bf16 加载，`torch.cat` 后进入 `model()` 会触发 mat1/mat2 dtype 报错；现于拼接前统一转 `llm_dtype`。
+- 修复 `evaluate.py`：Qwen3 默认 thinking 模式，手工拼 prompt 会让输出先吐推理文本；训练与评测统一改走 `text.build_prompt`（`apply_chat_template(..., enable_thinking=False)`）。
+- 修复 `train.py`：同源 dtype 问题；新增 `--init-encoder`，SFT 可从 align 的 `encoder_align.pt` 续训，不再从随机编码器开始。
+- 已知限制：SFT 只取第 1 轮问答，`--turn 1..3` 的评测没有训练支撑；`score.py` 用严格 exact match，数值题（如 `1.23 m`）偏严。
